@@ -1,5 +1,5 @@
 /*
- * wlr-crasher.c -- simple program to demonstrate a crash in wlroots
+ * wlr-crasher2.c -- simple program to demonstrate a crash in wlroots
  * 	(based on wlroots examples)
  * 
  * 2020 Daniel Kondor <kondor.dani@gmail.com>
@@ -22,105 +22,28 @@
 
 #include <wayland-client.h>
 #include <wayland-server.h>
-#include <cairo.h>
 #include "xdg-shell-client-protocol.h"
-#include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
+
+#include <cairo.h>
 
 
 #define UNUSED __attribute__((unused))
 
 static int width = 400, height = 300;
 static int popup_width = 300, popup_height = 300;
-static int is_child = 0;
 
 static struct wl_display* display = NULL;
 static struct wl_compositor* compositor = NULL;
 static struct wl_seat* seat = NULL;
 static struct wl_shm* wl_shm = NULL;
 static struct xdg_wm_base* wm_base = NULL;
-static struct zwlr_foreign_toplevel_manager_v1* toplevel_manager = NULL;
-
-typedef struct zwlr_foreign_toplevel_handle_v1 wfthandle;
 
 static struct wl_surface* surface = NULL;
 static struct xdg_toplevel* toplevel = NULL;
 static struct wl_surface* popup_surface = NULL;
 static struct xdg_popup* popup = NULL;
 
-static int pointer_popup = 0;
-
-static wfthandle* child_handle = NULL;
-
-static const char parent_app_id[] = "wlr-crasher-parent";
-static const char child_app_id[] = "wlr-crasher-child";
-
-
-static useconds_t sleep_interval = 5000;
-
-// callbacks 
-void toplevel_title_cb(UNUSED void *data, UNUSED wfthandle *handle, UNUSED const char *title) {
-	/* we don't care */
-}
-
-void toplevel_appid_cb(UNUSED void *data, wfthandle *handle, const char *app_id) {
-	/* set our handle to the child */
-	if(app_id && !child_handle && !strcmp(app_id, child_app_id)) {
-		child_handle = handle;
-		fprintf(stderr, "Child found\n");
-	}
-	/* otherwise we don't care */
-	else zwlr_foreign_toplevel_handle_v1_destroy(handle);
-}
-
-void toplevel_output_enter_cb(UNUSED void *data, UNUSED wfthandle *handle, UNUSED struct wl_output *output) {
-	/* we don't care */
-}
-void toplevel_output_leave_cb(UNUSED void *data, UNUSED wfthandle *handle, UNUSED struct wl_output *output) {
-	/* we don't care */
-}
-
-void toplevel_state_cb(UNUSED void *data, UNUSED wfthandle *handle, UNUSED struct wl_array *state) {
-	/* we don't care */
-}
-
-void toplevel_done_cb(UNUSED void *data, UNUSED wfthandle *handle) {
-	/* we don't care */
-}
-
-void toplevel_closed_cb (UNUSED void *data, UNUSED wfthandle *handle) {
-	if(handle == child_handle) {
-		child_handle = NULL;
-		fprintf(stderr, "Child lost\n");
-	}
-	zwlr_foreign_toplevel_handle_v1_destroy(handle);
-}
-
-struct zwlr_foreign_toplevel_handle_v1_listener toplevel_handle_listener = {
-    .title        = toplevel_title_cb,
-    .app_id       = toplevel_appid_cb,
-    .output_enter = toplevel_output_enter_cb,
-    .output_leave = toplevel_output_leave_cb,
-    .state        = toplevel_state_cb,
-    .done         = toplevel_done_cb,
-    .closed       = toplevel_closed_cb,
-//    .parent       = toplevel_parent_cb
-};
-
-static void new_toplevel (UNUSED void *data,
-		UNUSED struct zwlr_foreign_toplevel_manager_v1 *manager,
-		wfthandle *handle) {
-	/* note: we cannot do anything as long as we get app_id */
-	zwlr_foreign_toplevel_handle_v1_add_listener (handle, &toplevel_handle_listener, NULL);
-}
-
-static void toplevel_manager_finished(UNUSED void *data, UNUSED struct zwlr_foreign_toplevel_manager_v1 *manager) {
-	/* don't care */
-}
-
-static struct zwlr_foreign_toplevel_manager_v1_listener toplevel_manager_listener = {
-    .toplevel = new_toplevel,
-    .finished = toplevel_manager_finished,
-};
+static const char app_id[] = "wlr-crasher-2";
 
 
 static int shm_create(size_t size) {
@@ -166,7 +89,10 @@ static void render_frame(struct wl_surface* wls) {
 		wl_shm_pool_destroy(pool);
 	}
 	close(shm_fd);
-	if(!buffer) goto render_frame_error;
+	if(!buffer) {
+		munmap(data, size);
+		goto render_frame_error;
+	}
 	
 	cairo_surface_t* csurface = cairo_image_surface_create_for_data(data, CAIRO_FORMAT_ARGB32, w, h, stride);
 	cairo_t* cr = cairo_create(csurface);
@@ -176,8 +102,8 @@ static void render_frame(struct wl_surface* wls) {
 	cairo_set_font_size(cr, 14);
 	cairo_set_source_rgba(cr, 1, 1, 1, 1);
 	cairo_move_to(cr, 50, 150);
-	cairo_show_text(cr, is_child ? "Crasher child process   (click to exit)" :
-		(wls == popup_surface ? "Click me to crash" : "Crasher parent process   (click to exit)"));
+	cairo_show_text(cr, (wls == popup_surface ? "Crasher popup   (click to close)" :
+		"Crasher toplevel   (click to exit)"));
 	cairo_surface_flush(csurface);
 	
 	wl_buffer_add_listener(buffer, &buffer_listener, NULL);
@@ -252,18 +178,14 @@ static const struct xdg_wm_base_listener xdg_wm_base_listener = {
 };
 
 
+static int pointer_popup = 0;
+
 static void pointer_handle_button(UNUSED void *data, UNUSED struct wl_pointer *pointer, UNUSED uint32_t serial,
 		UNUSED uint32_t time, UNUSED uint32_t button, uint32_t state_w) {
 	if(!state_w) return;
-	if(pointer_popup) {
-		if(child_handle) {
-			fprintf(stderr, "\n\n\nSending activate, this should close the popup\n");
-			zwlr_foreign_toplevel_handle_v1_activate(child_handle, seat);
-			wl_display_flush(display);
-			if(sleep_interval) usleep(sleep_interval);
-			fprintf(stderr, "\n\n\nCommiting the popup\n\n\n");
-			render_frame(popup_surface);
-		}
+	if(pointer_popup && popup) {
+		xdg_popup_destroy(popup);
+		popup = NULL;
 	}
 	else exit(0);
 }
@@ -331,10 +253,6 @@ static void handle_global(UNUSED void *data, struct wl_registry *registry,
 	} else if(strcmp(interface, xdg_wm_base_interface.name) == 0) {
 		wm_base = wl_registry_bind(registry, name, &xdg_wm_base_interface, 1);
 		xdg_wm_base_add_listener(wm_base, &xdg_wm_base_listener, NULL);
-	} else if(!is_child && strcmp(interface,
-			zwlr_foreign_toplevel_manager_v1_interface.name) == 0) {
-		toplevel_manager = wl_registry_bind(registry, name,
-			&zwlr_foreign_toplevel_manager_v1_interface, version);
 	} else if(strcmp(interface, wl_seat_interface.name) == 0) {
 		seat = wl_registry_bind(registry, name, &wl_seat_interface, version);
 	} else if(strcmp(interface, wl_shm_interface.name) == 0) {
@@ -353,48 +271,13 @@ static const struct wl_registry_listener registry_listener = {
 
 int main(int argc, char **argv)
 {
-	int i;
-	int create_child = 1;
-	for(i = 1; i < argc; i++) {
-		if(argv[i][0] == '-') switch(argv[i][1]) {
-			case 's':
-				sleep_interval = atoi(argv[i+1]);
-				i++;
-				break;
-			case 'C':
-				create_child = 0;
-				break;
-			default:
-				fprintf(stderr, "Unknown parameter: %s!\n", argv[i]);
-				break;
-		}
-		else fprintf(stderr, "Unknown parameter: %s!\n", argv[i]);		
-	}
-	
-	if(create_child) {
-		int pid = fork();
-		if(pid < 0) {
-			fprintf(stderr, "Error creating child process!\n");
-			return 1;
-		}
-		is_child = pid ? 0 : 1;
-		if(is_child) {
-			/* we don't want the child's debug messages */
-			int fd = open("/dev/null", O_CLOEXEC | O_WRONLY);
-			dup2(fd, STDOUT_FILENO);
-			dup2(fd, STDERR_FILENO);
-		}
-	}
-	
 	display = wl_display_connect(NULL);
 	assert(display);
 	struct wl_registry *registry = wl_display_get_registry(display);
 	assert(registry);
 	wl_registry_add_listener(registry, &registry_listener, NULL);
 	wl_display_roundtrip(display);
-	assert(compositor && seat && wm_base && wl_shm && (is_child || toplevel_manager));
-	
-	if(!is_child) zwlr_foreign_toplevel_manager_v1_add_listener(toplevel_manager, &toplevel_manager_listener, NULL);
+	assert(compositor && seat && wm_base && wl_shm);
 	
 	struct wl_pointer *pointer = wl_seat_get_pointer(seat);
 	wl_pointer_add_listener(pointer, &pointer_listener, NULL);
@@ -410,36 +293,34 @@ int main(int argc, char **argv)
 	xdg_surface_add_listener(xdg_surface, &xdg_surface_listener, surface);
 	xdg_toplevel_add_listener(xdg_toplevel, &xdg_toplevel_listener, surface);
 	
-	xdg_toplevel_set_title(xdg_toplevel, is_child ? "wlr-crasher child" : "wlr-crasher parent");
-	xdg_toplevel_set_app_id(xdg_toplevel, is_child ? child_app_id : parent_app_id);
+	xdg_toplevel_set_title(xdg_toplevel, "wlr-crasher 2");
+	xdg_toplevel_set_app_id(xdg_toplevel, app_id);
 	
 	wl_surface_commit(surface);
 	
 	wl_display_roundtrip(display);
 	// render_frame();
 	
-	if(!is_child) {
-		struct xdg_positioner* positioner = xdg_wm_base_create_positioner(wm_base);
-		assert(positioner);
-		xdg_positioner_set_size(positioner, popup_width, popup_height);
-		xdg_positioner_set_anchor_rect(positioner, 0, 200, 1, 1);
-		xdg_positioner_set_anchor(positioner, 5);
-		xdg_positioner_set_gravity(positioner, 2);
-		
-		popup_surface = wl_compositor_create_surface(compositor);
-		assert(popup_surface);
-		struct xdg_surface* popup_xdg_surface = xdg_wm_base_get_xdg_surface(wm_base, popup_surface);
-		assert(popup_xdg_surface);
-		popup = xdg_surface_get_popup(popup_xdg_surface, xdg_surface, positioner);
-		assert(popup);
-		
-		xdg_surface_add_listener(popup_xdg_surface, &xdg_surface_listener, popup_surface);
-		xdg_popup_add_listener(popup, &xdg_popup_listener, popup_surface);
-		
-		wl_surface_commit(popup_surface);
-		xdg_positioner_destroy(positioner);
-		wl_display_roundtrip(display);
-	}
+	struct xdg_positioner* positioner = xdg_wm_base_create_positioner(wm_base);
+	assert(positioner);
+	xdg_positioner_set_size(positioner, popup_width, popup_height);
+	xdg_positioner_set_anchor_rect(positioner, 0, 200, 1, 1);
+	xdg_positioner_set_anchor(positioner, 5);
+	xdg_positioner_set_gravity(positioner, 2);
+	
+	popup_surface = wl_compositor_create_surface(compositor);
+	assert(popup_surface);
+	struct xdg_surface* popup_xdg_surface = xdg_wm_base_get_xdg_surface(wm_base, popup_surface);
+	assert(popup_xdg_surface);
+	popup = xdg_surface_get_popup(popup_xdg_surface, xdg_surface, positioner);
+	assert(popup);
+	
+	xdg_surface_add_listener(popup_xdg_surface, &xdg_surface_listener, popup_surface);
+	xdg_popup_add_listener(popup, &xdg_popup_listener, popup_surface);
+	
+	wl_surface_commit(popup_surface);
+	xdg_positioner_destroy(positioner);
+	wl_display_roundtrip(display);
 	
 	while (wl_display_dispatch(display) != -1);
 	

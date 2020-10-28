@@ -60,3 +60,9 @@ protos = declare_dependency(
 
 wlrc = executable('wlrc', 'wlr-crasher.c',
         dependencies: [wlclient, wlserver, cairo, protos])
+
+wlrc2 = executable('wlrc2', 'wlr-crasher-2.c',
+        dependencies: [wlclient, wlserver, cairo, protos])
+        
+
+       
