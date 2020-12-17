@@ -288,7 +288,8 @@ void create_xdg_popup(struct wlr_xdg_surface *xdg_surface,
 		return;
 	}
 
-	if (xdg_surface->role != WLR_XDG_SURFACE_ROLE_NONE) {
+	if (xdg_surface->role != WLR_XDG_SURFACE_ROLE_NONE &&
+			xdg_surface->role != WLR_XDG_SURFACE_ROLE_INERT_POPUP) {
 		wl_resource_post_error(xdg_surface->resource,
 			XDG_SURFACE_ERROR_ALREADY_CONSTRUCTED,
 			"xdg-surface has already been constructed");
