@@ -71,6 +71,7 @@ void unmap_xdg_surface(struct wlr_xdg_surface *surface) {
 		}
 		break;
 	case WLR_XDG_SURFACE_ROLE_NONE:
+	case WLR_XDG_SURFACE_ROLE_INERT_POPUP:
 		assert(false && "not reached");
 	}
 
@@ -139,6 +140,7 @@ static void xdg_surface_handle_ack_configure(struct wl_client *client,
 		handle_xdg_toplevel_ack_configure(surface, configure);
 		break;
 	case WLR_XDG_SURFACE_ROLE_POPUP:
+	case WLR_XDG_SURFACE_ROLE_INERT_POPUP:
 		break;
 	}
 
@@ -167,6 +169,7 @@ static void surface_send_configure(void *user_data) {
 
 	switch (surface->role) {
 	case WLR_XDG_SURFACE_ROLE_NONE:
+	case WLR_XDG_SURFACE_ROLE_INERT_POPUP:
 		assert(0 && "not reached");
 		break;
 	case WLR_XDG_SURFACE_ROLE_TOPLEVEL:
@@ -219,6 +222,7 @@ uint32_t schedule_xdg_surface_configure(struct wlr_xdg_surface *surface) {
 
 	switch (surface->role) {
 	case WLR_XDG_SURFACE_ROLE_NONE:
+	case WLR_XDG_SURFACE_ROLE_INERT_POPUP:
 		assert(0 && "not reached");
 		break;
 	case WLR_XDG_SURFACE_ROLE_TOPLEVEL:
@@ -329,6 +333,8 @@ static void xdg_surface_handle_surface_commit(struct wl_listener *listener,
 	struct wlr_xdg_surface *surface =
 		wl_container_of(listener, surface, surface_commit);
 
+	if (surface->role == WLR_XDG_SURFACE_ROLE_INERT_POPUP) return;
+
 	if (wlr_surface_has_buffer(surface->surface) && !surface->configured) {
 		wl_resource_post_error(surface->resource,
 			XDG_SURFACE_ERROR_UNCONFIGURED_BUFFER,
@@ -338,7 +344,7 @@ static void xdg_surface_handle_surface_commit(struct wl_listener *listener,
 
 	// surface->role might be NONE for inert popups
 	// So we check surface->surface->role
-	if (surface->surface->role == NULL) {
+	if (surface->role == WLR_XDG_SURFACE_ROLE_NONE) {
 		wl_resource_post_error(surface->resource,
 			XDG_SURFACE_ERROR_NOT_CONSTRUCTED,
 			"xdg_surface must have a role");
@@ -362,8 +368,12 @@ void handle_xdg_surface_commit(struct wlr_surface *wlr_surface) {
 	}
 
 	switch (surface->role) {
+	case WLR_XDG_SURFACE_ROLE_INERT_POPUP:
+		// inert popup
+		return;
 	case WLR_XDG_SURFACE_ROLE_NONE:
-		// inert toplevel or popup
+		// should not happen
+		wlr_log(WLR_ERROR, "xdg_surface %p commit with role == NONE", surface);
 		return;
 	case WLR_XDG_SURFACE_ROLE_TOPLEVEL:
 		handle_xdg_surface_toplevel_committed(surface);
@@ -473,7 +483,8 @@ struct wlr_xdg_surface *create_xdg_surface(
 }
 
 void reset_xdg_surface(struct wlr_xdg_surface *xdg_surface) {
-	if (xdg_surface->role != WLR_XDG_SURFACE_ROLE_NONE) {
+	if (xdg_surface->role != WLR_XDG_SURFACE_ROLE_NONE &&
+		xdg_surface->role != WLR_XDG_SURFACE_ROLE_INERT_POPUP) {
 		unmap_xdg_surface(xdg_surface);
 	}
 
@@ -505,6 +516,7 @@ void reset_xdg_surface(struct wlr_xdg_surface *xdg_surface) {
 		xdg_surface->popup = NULL;
 		break;
 	case WLR_XDG_SURFACE_ROLE_NONE:
+	case WLR_XDG_SURFACE_ROLE_INERT_POPUP:
 		// This space is intentionally left blank
 		break;
 	}
@@ -566,6 +578,7 @@ void wlr_xdg_popup_destroy(struct wlr_xdg_surface *surface) {
 	xdg_popup_send_popup_done(surface->popup->resource);
 	wl_resource_set_user_data(surface->popup->resource, NULL);
 	reset_xdg_surface(surface);
+	surface->role = WLR_XDG_SURFACE_ROLE_INERT_POPUP;
 }
 
 void wlr_xdg_popup_get_position(struct wlr_xdg_popup *popup,

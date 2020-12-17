@@ -96,6 +96,7 @@ enum wlr_xdg_surface_role {
 	WLR_XDG_SURFACE_ROLE_NONE,
 	WLR_XDG_SURFACE_ROLE_TOPLEVEL,
 	WLR_XDG_SURFACE_ROLE_POPUP,
+	WLR_XDG_SURFACE_ROLE_INERT_POPUP,
 };
 
 struct wlr_xdg_toplevel_state {
