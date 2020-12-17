@@ -97,7 +97,7 @@ void unmap_xdg_surface(struct wlr_xdg_surface *surface) {
 static void xdg_surface_handle_ack_configure(struct wl_client *client,
 		struct wl_resource *resource, uint32_t serial) {
 	struct wlr_xdg_surface *surface = wlr_xdg_surface_from_resource(resource);
-	if (surface == NULL) {
+	if (surface == NULL || surface->role == WLR_XDG_SURFACE_ROLE_INERT_POPUP) {
 		return;
 	}
 
@@ -134,13 +134,13 @@ static void xdg_surface_handle_ack_configure(struct wl_client *client,
 
 	switch (surface->role) {
 	case WLR_XDG_SURFACE_ROLE_NONE:
+	case WLR_XDG_SURFACE_ROLE_INERT_POPUP:
 		assert(0 && "not reached");
 		break;
 	case WLR_XDG_SURFACE_ROLE_TOPLEVEL:
 		handle_xdg_toplevel_ack_configure(surface, configure);
 		break;
 	case WLR_XDG_SURFACE_ROLE_POPUP:
-	case WLR_XDG_SURFACE_ROLE_INERT_POPUP:
 		break;
 	}
 
@@ -271,7 +271,7 @@ static void xdg_surface_handle_set_window_geometry(struct wl_client *client,
 		struct wl_resource *resource, int32_t x, int32_t y, int32_t width,
 		int32_t height) {
 	struct wlr_xdg_surface *surface = wlr_xdg_surface_from_resource(resource);
-	if (surface == NULL) {
+	if (surface == NULL || surface->role == WLR_XDG_SURFACE_ROLE_INERT_POPUP) {
 		return;
 	}
 
@@ -303,7 +303,7 @@ static void xdg_surface_handle_destroy(struct wl_client *client,
 		return;
 	}
 
-	if (surface->role != WLR_XDG_SURFACE_ROLE_NONE) {
+	if (surface->role != WLR_XDG_SURFACE_ROLE_NONE && surface->role != WLR_XDG_SURFACE_ROLE_INERT_POPUP) {
 		wlr_log(WLR_ERROR, "Tried to destroy an xdg_surface before its role "
 			"object");
 		return;
@@ -342,8 +342,6 @@ static void xdg_surface_handle_surface_commit(struct wl_listener *listener,
 		return;
 	}
 
-	// surface->role might be NONE for inert popups
-	// So we check surface->surface->role
 	if (surface->role == WLR_XDG_SURFACE_ROLE_NONE) {
 		wl_resource_post_error(surface->resource,
 			XDG_SURFACE_ERROR_NOT_CONSTRUCTED,
