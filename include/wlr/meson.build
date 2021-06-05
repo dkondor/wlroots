@@ -10,6 +10,11 @@ foreach name, have : features
 	conf_data.set10('WLR_HAS_' + name.underscorify().to_upper(), have)
 endforeach
 
+conf_data.set10('WLR_HAS_EGLMESAEXT_H', false)
+if cc.has_header('EGL/eglmesaext.h', dependencies: egl)
+	conf_data.set10('WLR_HAS_EGLMESAEXT_H', true)
+endif
+
 conf_h = configure_file(
 	input: 'config.h.in',
 	output: 'config.h',

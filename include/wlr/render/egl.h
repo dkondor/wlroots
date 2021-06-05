@@ -23,6 +23,9 @@
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#if WLR_HAS_EGLMESAEXT_H
+#include <EGL/eglmesaext.h>
+#endif
 #include <pixman.h>
 #include <stdbool.h>
 #include <wayland-server-core.h>
