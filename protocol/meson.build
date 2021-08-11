@@ -39,6 +39,7 @@ protocols = {
 
 	# Other protocols
 	'drm': 'drm.xml',
+	'gtk-primary-selection': 'gtk-primary-selection.xml',
 	'kde-idle': 'idle.xml',
 	'kde-server-decoration': 'server-decoration.xml',
 	'input-method-unstable-v2': 'input-method-unstable-v2.xml',
