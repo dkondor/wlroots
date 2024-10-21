@@ -196,27 +196,13 @@ static struct wlr_buffer *render_cursor_buffer(struct wlr_output_cursor *cursor)
 
 	int width = cursor->width;
 	int height = cursor->height;
-	if (output->impl->get_cursor_sizes) {
+	if (output->impl->get_cursor_size) {
 		// Apply hardware limitations on buffer size
-		size_t sizes_len = 0;
-		const struct wlr_output_cursor_size *sizes =
-			output->impl->get_cursor_sizes(cursor->output, &sizes_len);
-
-		bool found = false;
-		for (size_t i = 0; i < sizes_len; i++) {
-			struct wlr_output_cursor_size size = sizes[i];
-			if ((int)texture->width <= size.width && (int)texture->height <= size.height) {
-				width = size.width;
-				height = size.height;
-				found = true;
-				break;
-			}
-		}
-
-		if (!found) {
+		output->impl->get_cursor_size(cursor->output, &width, &height);
+		if ((int)texture->width > width || (int)texture->height > height) {
 			wlr_log(WLR_DEBUG, "Cursor texture too large (%dx%d), "
-				"exceeds hardware limitations", texture->width,
-				texture->height);
+				"exceeds hardware limitations (%dx%d)", texture->width,
+				texture->height, width, height);
 			return NULL;
 		}
 	}
